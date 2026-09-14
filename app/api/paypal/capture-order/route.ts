@@ -1,4 +1,4 @@
-```ts
+
 import { NextResponse } from "next/server";
 
 const PAYPAL_CLIENT_ID =
