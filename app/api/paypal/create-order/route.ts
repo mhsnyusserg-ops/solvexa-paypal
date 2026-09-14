@@ -1,55 +1,33 @@
+
 import { NextResponse } from "next/server";
 
-const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID!;
-const PAYPAL_CLIENT_SECRET = process.env.PAYPAL_CLIENT_SECRET!;
-
-const SHOPIFY_ORIGIN = process.env.SHOPIFY_ORIGIN || "*";
-
-function corsHeaders() {
-  return {
-    "Access-Control-Allow-Origin": SHOPIFY_ORIGIN,
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-  };
-}
-
-export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 204,
-    headers: corsHeaders(),
-  });
-}
+const PAYPAL_API = "https://api-m.paypal.com";
 
 async function getAccessToken() {
-  if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET) {
+  const clientId = process.env.PAYPAL_CLIENT_ID;
+  const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
+
+  if (!clientId || !clientSecret) {
     throw new Error("PayPal environment variables are missing.");
   }
 
-  const auth = Buffer.from(
-    `${PAYPAL_CLIENT_ID}:${PAYPAL_CLIENT_SECRET}`
-  ).toString("base64");
+  const auth = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
 
-  const response = await fetch(
-    "https://api-m.paypal.com/v1/oauth2/token",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${auth}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: "grant_type=client_credentials",
-      cache: "no-store",
-    }
-  );
+  const response = await fetch(`${PAYPAL_API}/v1/oauth2/token`, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${auth}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: "grant_type=client_credentials",
+  });
 
   if (!response.ok) {
     const text = await response.text();
-    console.error("PayPal authentication failed:", text);
-    throw new Error("PayPal authentication failed.");
+    throw new Error(`PayPal authentication failed: ${text}`);
   }
 
   const data = await response.json();
-
   return data.access_token;
 }
 
@@ -57,208 +35,92 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
 
-    const currency = String(
-      body.currency || "USD"
-    ).toUpperCase();
+    const amount = Number(body.amount);
+    const quantity = Math.max(1, Number(body.quantity || 1));
 
-    const total = Number(body.total);
-
-    const cart = Array.isArray(body.cart)
-      ? body.cart
-      : [];
-
-    if (!cart.length) {
+    if (!Number.isFinite(amount) || amount <= 0) {
       return NextResponse.json(
-        {
-          error: "السلة فارغة.",
-        },
-        {
-          status: 400,
-          headers: corsHeaders(),
-        }
+        { error: "Invalid product amount." },
+        { status: 400 }
       );
     }
 
-    if (
-      !Number.isFinite(total) ||
-      total <= 0
-    ) {
-      return NextResponse.json(
-        {
-          error: "إجمالي الطلب غير صالح.",
-        },
-        {
-          status: 400,
-          headers: corsHeaders(),
-        }
-      );
-    }
+    const total = (amount * quantity).toFixed(2);
 
-    if (currency !== "USD") {
-      return NextResponse.json(
-        {
-          error:
-            "العملة الحالية يجب أن تكون USD.",
-        },
-        {
-          status: 400,
-          headers: corsHeaders(),
-        }
-      );
-    }
+    const accessToken = await getAccessToken();
 
-    /*
-     * Build PayPal item details.
-     */
-    const items = cart.map((item: any) => {
-      const quantity = Number(item.quantity);
-
-      if (
-        !Number.isInteger(quantity) ||
-        quantity <= 0
-      ) {
-        throw new Error(
-          "كمية منتج غير صالحة."
-        );
-      }
-
-      const linePrice = Number(
-        item.line_price
-      );
-
-      if (
-        !Number.isFinite(linePrice) ||
-        linePrice <= 0
-      ) {
-        throw new Error(
-          "سعر منتج غير صالح."
-        );
-      }
-
-      const unitPrice =
-        linePrice / 100 / quantity;
-
-      return {
-        name: String(
-          item.title ||
-            "SOLVEXA Product"
-        ).slice(0, 127),
-
-        quantity: String(quantity),
-
-        unit_amount: {
-          currency_code: currency,
-          value: unitPrice.toFixed(2),
-        },
-      };
-    });
-
-    const accessToken =
-      await getAccessToken();
-
-    /*
-     * Create PayPal order.
-     *
-     * We intentionally do NOT send
-     * breakdown.item_total here because
-     * Shopify cart totals can contain
-     * discounts or other adjustments.
-     */
-    const paypalResponse = await fetch(
-      "https://api-m.paypal.com/v2/checkout/orders",
+    const orderResponse = await fetch(
+      `${PAYPAL_API}/v2/checkout/orders`,
       {
         method: "POST",
-
         headers: {
-          Authorization:
-            `Bearer ${accessToken}`,
-
-          "Content-Type":
-            "application/json",
-
-          "PayPal-Request-Id":
-            crypto.randomUUID(),
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
         },
-
         body: JSON.stringify({
           intent: "CAPTURE",
-
           purchase_units: [
             {
-              description:
-                "SOLVEXA Shopify Order",
-
               amount: {
-                currency_code:
-                  currency,
-
-                value:
-                  total.toFixed(2),
+                currency_code: "USD",
+                value: total,
               },
-
-              items,
             },
           ],
+          application_context: {
+            brand_name: "SOLVEXA",
+            user_action: "PAY_NOW",
+            shipping_preference: "GET_FROM_FILE",
+            return_url: "https://solvexa-paypal.vercel.app/api/paypal/success",
+            cancel_url: "https://solvexa-paypal.vercel.app/api/paypal/cancel",
+          },
         }),
-
-        cache: "no-store",
       }
     );
 
-    const order =
-      await paypalResponse.json();
+    const orderData = await orderResponse.json();
 
-    if (!paypalResponse.ok) {
-      console.error(
-        "PayPal create order error:",
-        order
-      );
-
+    if (!orderResponse.ok) {
       return NextResponse.json(
         {
-          error:
-            order?.message ||
-            "فشل إنشاء طلب PayPal.",
-
-          details: order,
+          error: "PayPal could not create the order.",
+          details: orderData,
         },
-        {
-          status:
-            paypalResponse.status,
-
-          headers:
-            corsHeaders(),
-        }
+        { status: 500 }
       );
     }
 
-    return NextResponse.json(
-      {
-        orderID: order.id,
-      },
-      {
-        status: 200,
-        headers: corsHeaders(),
-      }
-    );
+    const approvalLink = orderData.links?.find(
+      (link: { rel: string }) => link.rel === "approve"
+    )?.href;
 
+    if (!approvalLink) {
+      return NextResponse.json(
+        {
+          error: "PayPal approval link was not returned.",
+          details: orderData,
+        },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      orderID: orderData.id,
+      approvalUrl: approvalLink,
+    });
   } catch (error) {
-    console.error(
-      "Create PayPal order error:",
-      error
-    );
+    console.error("PayPal create-order error:", error);
 
     return NextResponse.json(
       {
         error:
           error instanceof Error
             ? error.message
-            : "Failed to create PayPal order.",
+            : "Unknown PayPal error.",
       },
-      {
-        status: 500,
-        headers: corsHeaders(),
-      }
+      { status: 500 }
     );
   }
 }
+```
+
