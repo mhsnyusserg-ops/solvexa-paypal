@@ -45,7 +45,6 @@ const [cart, setCart] = useState<ShopifyCart | null>(null);
 useEffect(() => {
 let mounted = true;
 
-```
 const getShopifyCart = async () => {
   try {
     if (
@@ -351,8 +350,6 @@ marginBottom: "10px",
 }}
 >
 SOLVEXA </h1>
-
-```
     <p
       style={{
         marginBottom: "20px",
@@ -411,7 +408,5 @@ SOLVEXA </h1>
     <div id="paypal-button-container" />
   </div>
 </main>
-```
-
 );
 }
