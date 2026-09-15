@@ -42,11 +42,9 @@ body: "grant_type=client_credentials",
 if (!response.ok) {
 const text = await response.text();
 
-```
 throw new Error(
   `PayPal authentication failed: ${text}`
 );
-```
 
 }
 
@@ -59,7 +57,6 @@ export async function POST(request: Request) {
 try {
 const body = await request.json();
 
-```
 const amount = Number(body.amount);
 const quantity = Math.max(
   1,
@@ -165,7 +162,6 @@ return NextResponse.json(
     headers: corsHeaders,
   }
 );
-```
 
 } catch (error) {
 console.error(
@@ -173,7 +169,6 @@ console.error(
 error
 );
 
-```
 return NextResponse.json(
   {
     error:
@@ -186,7 +181,6 @@ return NextResponse.json(
     headers: corsHeaders,
   }
 );
-```
 
 }
 }
