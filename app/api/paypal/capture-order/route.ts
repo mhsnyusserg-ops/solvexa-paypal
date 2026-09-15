@@ -61,7 +61,6 @@ if (!response.ok) {
 const text =
 await response.text();
 
-```
 console.error(
   "PayPal authentication failed:",
   text
@@ -70,7 +69,6 @@ console.error(
 throw new Error(
   "PayPal authentication failed."
 );
-```
 
 }
 
