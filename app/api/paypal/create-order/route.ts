@@ -1,4 +1,3 @@
-
 import { NextResponse } from "next/server";
 
 const PAYPAL_API = "https://api-m.paypal.com";
